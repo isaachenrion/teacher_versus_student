@@ -98,32 +98,14 @@ class Experiment:
                     FLAGS.batch_size, FLAGS.working_directory)
 
 def get_model(model_string):
-    opt1 = tf.train.AdamOptimizer(FLAGS.learning_rate)
-    opt2 = tf.train.AdamOptimizer(FLAGS.learning_rate*0.0)
     lr1 = FLAGS.learning_rate
     lr2 = FLAGS.learning_rate
-    if model_string == "gan":
-        model = GAN(IMAGE_SIZE, HIDDEN_SIZE, opt1, opt2)
-    elif model_string == "vae":
-        model = VAE(IMAGE_SIZE, HIDDEN_SIZE, opt1)
-    elif model_string == "fc":
-        model = FullyConnectedClassifier(input_shape=IMAGE_SHAPE,
-                                        label_dim=NUM_CLASSES,
-                                        optimizer=opt1)
-    elif model_string == "conv":
-        model = ConvnetClassifier(input_shape=IMAGE_SHAPE, label_dim=NUM_CLASSES, optimizer=opt1)
-    elif model_string == 'safe':
-        model = SafetyNetClassifier(cost_per_query=0.3,
-                                    input_dim=IMAGE_SIZE,
-                                    label_dim=NUM_CLASSES,
-                                    optimizer=opt1,
-                                    safety_net_optimizer=opt2)
-    elif model_string == 'cu':
-        model = Curriculum(input_shape=IMAGE_SHAPE,
+    model = Curriculum(input_shape=IMAGE_SHAPE,
                            label_dim=NUM_CLASSES,
                            student_lr=lr1,
                            teacher_lr=lr2,
-                           train_teacher_every=FLAGS.tt)
+                           train_teacher_every=FLAGS.tt,
+                           n_batches=)
 
     else: raise NameError
 

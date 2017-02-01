@@ -348,12 +348,12 @@ class SafetyNetClassifier(Classifier):
 
 
 class Curriculum(Model):
-    def __init__(self, input_shape, label_dim, student_lr, teacher_lr, train_teacher_every):
+    def __init__(self, input_shape, label_dim, student_lr, teacher_lr, train_teacher_every, n_batches=None):
         super(Curriculum, self).__init__(paradigm='classifier')
 
         # model hyperparameters
         self.teacher_temperature = 1
-        self.conv = True
+        self.conv = False
         self.self_study = True
         self.entropy_term = 0.0
         self.train_teacher_every = 10
@@ -370,6 +370,7 @@ class Curriculum(Model):
         self.input_dim = np.prod(input_shape)
         self.teacher_input_dim = self.input_dim
         self.label_dim = label_dim
+        self.n_batches = n_batches
 
         # optimization stuff
         self.student_lr = student_lr
@@ -385,86 +386,52 @@ class Curriculum(Model):
             self.student = self.fc_student
             self.teacher = self.fc_teacher
 
-        if not self.use_teacher_logits:
-            with tf.variable_scope('student'):
-                self.student_answers = self.student(self.inputs)
-                self.student_params = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 'student')
+        with tf.variable_scope('student/') as self.student_scope:
+            self.student_answers = self.student(self.inputs)
 
-        with tf.variable_scope('teacher'):
-            self.extra_info = []
+        with tf.variable_scope('teacher/') as self.teacher_scope:
+            extra_info = []
             if self.use_labels:
-                self.extra_info += [tf.cast(self.labels, tf.float32)]
+                extra_info += [tf.cast(self.labels, tf.float32)]
                 self.teacher_input_dim += self.label_dim
             if self.use_student_answers:
-                self.extra_info += [self.student_answers]
+                extra_info += [self.student_answers]
                 self.teacher_input_dim += self.label_dim
 
-            self.teacher_logits = self.teacher(self.inputs, self.extra_info)
+            self.teacher_logits = self.teacher(self.inputs, extra_info)
 
-            self.teacher_params = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 'teacher')
-            self.teacher_weights = tf.reshape(tf.nn.softmax(self.teacher_logits / self.teacher_temperature, dim=0), [-1])
+            teacher_weights = tf.nn.softmax(self.teacher_logits / self.teacher_temperature, dim=0)
 
-            tf.summary.histogram('teacher_weights', self.teacher_weights)
-            tf.summary.scalar('max_weight', tf.reduce_max(self.teacher_weights))
-            tf.summary.scalar('min_weight', tf.reduce_min(self.teacher_weights))
-            mean, variance = tf.nn.moments(self.teacher_weights, axes=[0])
-            tf.summary.scalar('mean_weight', mean)
-            tf.summary.scalar('weight_variance', variance)
+            #self.normalization_constant = tf.Variable(0.0, name='normalization_constant')
+            #self.sum_teacher_logits = tf.reduce_sum(self.teacher_logits)
+            self.teacher_weights = tf.reshape(teacher_weights, [-1])
+
             self.weight_entropy = -tf.reduce_sum(self.teacher_weights * tf.log(self.teacher_weights))
-            tf.summary.scalar('weight_entropy', self.weight_entropy)
-            tf.summary.histogram('teacher_logits', self.teacher_logits)
 
-        if self.use_teacher_logits:
-            with tf.variable_scope('student'):
-                extra_info = [self.teacher_logits]
-                if self.cheat:
-                    extra_info.append(tf.cast(self.labels, tf.float32))
-                self.student_answers = self.student(self.inputs, extra_info)
-                self.student_params = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 'student')
-
-        with tf.variable_scope('unweighted'):
+        with tf.variable_scope('unweighted/') as self.unweighted_scope:
             self.unweighted_losses = softmax_cross_entropy(logits=self.student_answers, labels=self.labels, reduce=False)
-            tf.summary.histogram('cross_entropy_batched', self.unweighted_losses)
-            max_l = tf.reduce_max(self.unweighted_losses)
-            min_l = tf.reduce_min(self.unweighted_losses)
-            mean, variance = tf.nn.moments(self.unweighted_losses, axes=[0])
-            tf.summary.scalar('max_loss', max_l)
-            tf.summary.scalar('min_loss', min_l)
-            tf.summary.scalar('loss_variance', variance)
             self.unweighted_loss = tf.reduce_mean(self.unweighted_losses)
-            tf.summary.scalar('cross_entropy', self.unweighted_loss)
-            self.accuracy = accuracy_with_logits(logits=self.student_answers, labels=self.labels)
-            tf.summary.scalar('accuracy', self.accuracy)
 
-        with tf.variable_scope('weighted'):
+        with tf.variable_scope('weighted/') as self.weighted_scope:
             self.weighted_losses = tf.mul(self.teacher_weights, self.unweighted_losses)
-            max_l = tf.reduce_max(self.weighted_losses)
-            min_l = tf.reduce_min(self.weighted_losses)
-            mean, variance = tf.nn.moments(self.weighted_losses, axes=[0])
-            tf.summary.scalar('max_loss', max_l)
-            tf.summary.scalar('min_loss', min_l)
-            tf.summary.scalar('loss_variance', variance)
             self.weighted_loss = tf.reduce_sum(self.weighted_losses, axis=0)
-            tf.summary.histogram('cross_entropy_batched', self.weighted_losses)
-            tf.summary.scalar('cross_entropy', self.weighted_loss)
-            self.weighted_accuracy = accuracy_with_logits(logits=self.student_answers, labels=self.labels, weights=self.teacher_weights)
-            tf.summary.scalar('accuracy', self.weighted_accuracy)
 
-        with tf.variable_scope('student', reuse=True):
+        with tf.variable_scope(self.student_scope):
             if self.self_study:
                 self.student_loss = self.unweighted_loss
             else: self.student_loss = self.weighted_loss
             self.loss_op = self.student_loss
-            tf.summary.scalar('loss', self.student_loss)
 
-        with tf.variable_scope('teacher', reuse=True):
+        with tf.variable_scope(self.teacher_scope):
             self.teacher_loss = -self.weighted_loss - tf.mul(self.weight_entropy, self.entropy_term)
-            tf.summary.scalar('loss', self.teacher_loss)
 
-        self.train_student = self.train(self.student_loss, global_step=self.global_step, optimizer=self.student_optimizer, var_list=self.student_params)
-        self.train_teacher = self.train(self.teacher_loss, global_step=self.global_step, optimizer=self.teacher_optimizer, var_list=self.teacher_params)
+        teacher_params = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 'teacher')
+        student_params = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 'student')
+        self.train_student = self.train(self.student_loss, global_step=self.global_step, optimizer=self.student_optimizer, var_list=student_params)
+        self.train_teacher = self.train(self.teacher_loss, global_step=self.global_step, optimizer=self.teacher_optimizer, var_list=teacher_params)
 
         #self.setup_evaluations()
+        self.attach_summaries()
         self.summary_op = tf.summary.merge_all()
         self.check_op = tf.add_check_numerics_ops()
 
@@ -646,6 +613,48 @@ class Curriculum(Model):
         settings['use_student_answers'] = self.use_student_answers
         settings['cheat'] = self.cheat
         return settings
+
+    def attach_summaries(self):
+        with tf.variable_scope(self.unweighted_scope):
+            tf.summary.histogram('cross_entropy_batched', self.unweighted_losses)
+            max_l = tf.reduce_max(self.unweighted_losses)
+            min_l = tf.reduce_min(self.unweighted_losses)
+            mean, variance = tf.nn.moments(self.unweighted_losses, axes=[0])
+            tf.summary.scalar('max_loss', max_l)
+            tf.summary.scalar('min_loss', min_l)
+            tf.summary.scalar('loss_variance', variance)
+            tf.summary.scalar('cross_entropy', self.unweighted_loss)
+            self.accuracy = accuracy_with_logits(logits=self.student_answers, labels=self.labels)
+            tf.summary.scalar('accuracy', self.accuracy)
+
+        with tf.variable_scope(self.weighted_scope):
+            max_l = tf.reduce_max(self.weighted_losses)
+            min_l = tf.reduce_min(self.weighted_losses)
+            mean, variance = tf.nn.moments(self.weighted_losses, axes=[0])
+            tf.summary.scalar('max_loss', max_l)
+            tf.summary.scalar('min_loss', min_l)
+            tf.summary.scalar('loss_variance', variance)
+            tf.summary.histogram('cross_entropy_batched', self.weighted_losses)
+            tf.summary.scalar('cross_entropy', self.weighted_loss)
+            self.weighted_accuracy = accuracy_with_logits(logits=self.student_answers, labels=self.labels, weights=self.teacher_weights)
+            tf.summary.scalar('accuracy', self.weighted_accuracy)
+
+        with tf.variable_scope(self.student_scope):
+            tf.summary.scalar('loss', self.student_loss)
+
+        with tf.variable_scope(self.teacher_scope):
+            tf.summary.histogram('teacher_weights', self.teacher_weights)
+            tf.summary.scalar('max_weight', tf.reduce_max(self.teacher_weights))
+            tf.summary.scalar('min_weight', tf.reduce_min(self.teacher_weights))
+            self.tw_mean, self.tw_variance = tf.nn.moments(self.teacher_weights, axes=[0])
+            tf.summary.scalar('mean_weight', self.tw_mean)
+            tf.summary.scalar('weight_variance', self.tw_variance)
+            tf.summary.scalar('weight_entropy', self.weight_entropy)
+            tf.summary.histogram('teacher_logits', self.teacher_logits)
+            tf.summary.scalar('loss', self.teacher_loss)
+
+
+
 
 
 class Generative(Model):
