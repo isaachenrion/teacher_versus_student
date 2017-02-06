@@ -229,7 +229,7 @@ class MNIST(LabelledDataset):
         self.unbalanced_test = unbalanced_test
         self.unbalanced_train = unbalanced_train
 
-        super(MNIST, self).__init__(batch_size, data_dir + '/MNIST', name, dims, [28, 28], 10, one_hot)
+        super(MNIST, self).__init__(batch_size, data_dir + '/MNIST', name, dims, [28, 28, 1], 10, one_hot)
 
     def load_train_data(self, data_dir):
         data_dir_ = data_dir
