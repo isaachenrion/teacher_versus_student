@@ -1,29 +1,15 @@
 from collections import namedtuple
-
+from utils import whiten
 from struct import unpack
 import gzip
 from numpy import zeros, uint8, float32
 import os
 import numpy as np
-from tensorflow.contrib.learn.python.learn.datasets.mnist import DataSet
-from tensorflow.examples.tutorials.mnist import input_data
+#from tensorflow.contrib.learn.python.learn.datasets.mnist import DataSet
+#from tensorflow.examples.tutorials.mnist import input_data
 
-DATASETS_DIR = 'data'
+DATA_DIR = os.path.join('', "data")
 DATASET_TYPES = ['train', 'valid', 'test']
-def create_binarized_mnist(which):
-    with open(DATASETS_DIR + '/BinaryMNIST/binarized_mnist_{}.amat'.format(which)) as f:
-        data = [l.strip().split(' ') for l in f.readlines()]
-        data = np.array(data).astype(int)
-        np.save(DATASETS_DIR + '/BinaryMNIST/binarized_mnist_{}.npy'.format(which), data)
-    return data
-
-def binarized_mnist():
-    #for which in ['train', 'valid', 'test']
-    #    data = np.load(DATASETS_DIR + '/BinaryMNIST/binarized_mnist_{}.npy'.format(which))
-    #    dataset = UnlabelledDataSet(data)
-    dataset = {which: UnlabelledDataSet(np.load(DATASETS_DIR + '/BinaryMNIST/binarized_mnist_{}.npy'.format(which)))for which in DATASET_TYPES}
-    return dataset
-
 class UnlabelledDataSet(object):
 
   def __init__(self,
@@ -112,25 +98,35 @@ class ProtoLabelledDataset(object):
         return x, y
 
 class LabelledDataset(object):
-    def __init__(self, batch_size, data_dir, name, dims, input_shape, label_dim, one_hot):
-        self.data_dir = name
+    def __init__(self, batch_size, data_dir, name, dims, input_shape, label_dim,
+                one_hot=True):
+        self.data_dir = data_dir
         self.name = name
         self.dims = dims
         self.one_hot = one_hot
 
-        self.x_train = np.load(os.path.join(data_dir, 'x-train.npy'))
-        self.y_train = np.load(os.path.join(data_dir, 'y-train.npy'))
-        self.x_test = np.load(os.path.join(data_dir, 'x-test.npy'))
-        self.y_test = np.load(os.path.join(data_dir, 'y-test.npy'))
+        self.load_train_data(data_dir)
+        self.load_test_data(data_dir)
 
         self.input_shape = input_shape
         self.input_dim = np.prod(self.input_shape)
         self.label_dim = label_dim
 
+        self.n_train = self.x_train.shape[0]
+        self.n_test = self.x_test.shape[0]
+
         self.reset_counters()
         self.batch_size = batch_size
-        self.n_train_batches = self.x_train.shape[0] / batch_size
-        self.n_test_batches = self.x_test.shape[0] / batch_size
+        self.n_train_batches = int(self.n_train / batch_size)
+        self.n_test_batches = int(self.n_test / batch_size)
+
+    def load_train_data(self, data_dir):
+        self.x_train = np.load(os.path.join(data_dir, 'x-train.npy'))
+        self.y_train = np.load(os.path.join(data_dir, 'y-train.npy'))
+
+    def load_test_data(self, data_dir):
+        self.x_test = np.load(os.path.join(data_dir, 'x-test.npy'))
+        self.y_test = np.load(os.path.join(data_dir, 'y-test.npy'))
 
     def x_preprocess(self, x):
         if self.dims == 2:
@@ -165,8 +161,8 @@ class LabelledDataset(object):
     def set_batch_size(self, batch_size):
         self.reset_counters()
         self.batch_size = batch_size
-        self.n_train_batches = self.x_train.shape[0] / batch_size
-        self.n_test_batches = self.x_test.shape[0] / batch_size
+        self.n_train_batches = int(self.x_train.shape[0] / batch_size)
+        self.n_test_batches = int(self.x_test.shape[0] / batch_size)
 
     def get_batch(self, test=False, random=False):
         if test:
@@ -175,29 +171,101 @@ class LabelledDataset(object):
             return self.get_train_batch(random)
 
     def get_train_batch(self, random=False):
-        if self.on_train_batch > self.n_train_batches:
-            self.on_train_index = 0
-            self.on_train_batch = 0
-            self.on_epoch += 1
         start, end = self.on_train_index, self.on_train_index + self.batch_size
         self.on_train_batch += 1
         self.on_train_index += self.batch_size
+        if self.on_train_batch >= self.n_train_batches:
+            self.on_train_index = 0
+            self.on_train_batch = 0
+            self.on_epoch += 1
 
         return self.x_preprocess(self.x_train[start:end]), self.y_preprocess(self.y_train[start:end])
 
     def get_test_batch(self, random=False):
-        if self.on_test_batch > self.n_test_batches:
-            self.on_test_index = 0
-            self.on_test_batch = 0
-            self.on_epoch += 1
         start, end = self.on_test_index, self.on_test_index + self.batch_size
         self.on_test_batch += 1
         self.on_test_index += self.batch_size
+        if self.on_test_batch >= self.n_test_batches:
+            self.on_test_index = 0
+            self.on_test_batch = 0
+            self.on_epoch += 1
 
         return self.x_preprocess(self.x_test[start:end]), self.y_preprocess(self.y_test[start:end])
 
-def mnist(batch_size, data_directory):
-    return LabelledDataset(batch_size, data_directory, name='mnist', dims=4, one_hot=True, input_shape=[28, 28, 1], label_dim=10)
+    def unit_test(self, vis=False, updates_per_epoch=100, epochs=10):
+
+        try:
+            assert self.on_train_batch == 0
+            for i in range(epochs):
+                #assert self.on_epoch == i
+                for j in range(updates_per_epoch):
+                    got_batch = False
+                    k = i * updates_per_epoch
+                    assert self.on_train_batch == (j + k) % self.n_train_batches
+                    assert self.on_train_index == ((j + k) * self.batch_size) % self.n_train
+                    images, labels = self.get_batch()
+                    got_batch = True
+                    assert self.on_train_batch == (j + 1 + k) % self.n_train_batches
+                    assert self.on_train_index == (j + 1 + k) * self.batch_size % self.n_train
+            if vis:
+                from utils import save_visualizations
+                save_visualizations(images, self.data_dir)
+                import ipdb; ipdb.set_trace()
+
+                #assert self.on_epoch == i + 1
+        except AssertionError as e:
+            print(e)
+            import ipdb; ipdb.set_trace()
+
+class MNIST(LabelledDataset):
+    def __init__(self, batch_size, data_dir, dims, one_hot, unbalanced_train=False, unbalanced_test=False):
+        name = 'MNIST'
+        if unbalanced_train:
+            train_tag = "/train-{}".format(unbalanced_train)
+            name += train_tag
+        if unbalanced_test:
+            test_tag = "/test-{}".format(unbalanced_test)
+            name += test_tag
+        self.unbalanced_test = unbalanced_test
+        self.unbalanced_train = unbalanced_train
+
+        super(MNIST, self).__init__(batch_size, data_dir + '/MNIST', name, dims, [28, 28], 10, one_hot)
+
+    def load_train_data(self, data_dir):
+        data_dir_ = data_dir
+        if self.unbalanced_train:
+            data_dir_ += '/u-{}'.format(self.unbalanced_train)
+        self.x_train = np.load(os.path.join(data_dir_, 'x-train.npy'))
+        self.y_train = np.load(os.path.join(data_dir_, 'y-train.npy'))
+
+    def load_test_data(self, data_dir):
+        data_dir_ = data_dir
+        if self.unbalanced_test:
+            data_dir_ += '/u-{}'.format(self.unbalanced_test)
+        self.x_test = np.load(os.path.join(data_dir_, 'x-test.npy'))
+        self.y_test = np.load(os.path.join(data_dir_, 'y-test.npy'))
+
+    def x_preprocess(self, x):
+        return np.reshape(x, [-1, self.input_dim]) / 255.0
+
+
+class CIFAR10(LabelledDataset):
+    def __init__(self, batch_size, data_dir, one_hot):
+        name = 'cifar10'
+        super(CIFAR10, self).__init__(batch_size, data_dir + '/cifar10', name, 4, [3, 32, 32], 10, one_hot)
+
+    def x_preprocess(self, x):
+        reshape = np.reshape(x, (x.shape[0], *self.input_shape))
+        return np.transpose(reshape, (0, 2, 3, 1)) / 255.0
+
+class CIFAR10_u05(LabelledDataset):
+    def __init__(self, batch_size, data_dir, one_hot):
+        name = 'cifar10/u-0.5'
+        super(CIFAR10_u05, self).__init__(batch_size, os.path.join(data_dir, name), name, 4, [3, 32, 32], 10, one_hot)
+
+    def x_preprocess(self, x):
+        reshape = np.reshape(x, (x.shape[0], *self.input_shape))
+        return np.transpose(reshape, (0, 2, 3, 1)) / 255.0
 
 def get_labeled_data(imagefile, labelfile):
     """Read input-vector (image) and target class (label, 0-9) and return
@@ -242,3 +310,52 @@ def get_labeled_data(imagefile, labelfile):
         tmp_label = labels.read(1)
         y[i] = unpack('>B', tmp_label)[0]
     return (x, y)
+
+def make_unbalanced(data_dir, keep_prob=0.5):
+    (x_train, y_train), (x_test, y_test) = load_from_standard_supervised_format(data_dir)
+
+    def sample(keep_prob, x, y):
+        p = np.exp(y * np.log(keep_prob))
+        coins = np.random.binomial(1, p)
+        select = np.nonzero(coins)[0]
+        x_out = x[select]
+        y_out = y[select]
+        return x_out, y_out
+
+    x_train_u, y_train_u = sample(keep_prob, x_train, y_train)
+    x_test_u, y_test_u = sample(keep_prob, x_test, y_test)
+
+    path = os.path.join(data_dir, 'u-{}'.format(keep_prob))
+    if not os.path.exists(path):
+        os.makedirs(path)
+    save_to_standard_supervised_format(x_train_u, y_train_u, x_test_u, y_test_u, path)
+#make_unbalanced_mnist()
+
+def unpickle(file):
+    import pickle
+    fo = open(file, 'rb')
+    dict = pickle.load(fo)
+    fo.close()
+    return dict
+
+def save_to_standard_supervised_format(x_train, y_train, x_test, y_test, data_dir):
+    np.save(os.path.join(data_dir, 'x-train.npy'), x_train)
+    np.save(os.path.join(data_dir, 'y-train.npy'), y_train)
+    np.save(os.path.join(data_dir, 'x-test.npy'), x_test)
+    np.save(os.path.join(data_dir, 'y-test.npy'), y_test)
+
+def load_from_standard_supervised_format(data_dir):
+    x_train = np.load(os.path.join(data_dir, 'x-train.npy'), 'r')
+    y_train = np.load(os.path.join(data_dir, 'y-train.npy'), 'r')
+    x_test = np.load(os.path.join(data_dir, 'x-test.npy'), 'r')
+    y_test = np.load(os.path.join(data_dir, 'y-test.npy'), 'r')
+    return (x_train, y_train), (x_test, y_test)
+
+def make_cifar10():
+    f_dicts = []
+    for i in range(1, 6):
+        f_dicts.append(unpickle(os.path.join(DATA_DIR, 'cifar10/cifar-10-batches-py/data_batch_{}'.format(i))))
+    x_train = np.concatenate([f_dict['data'] for f_dict in f_dicts])
+    y_train = np.concatenate([f_dict['labels'] for f_dict in f_dicts])
+
+#make_unbalanced(DATA_DIR + '/cifar10')

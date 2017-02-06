@@ -51,6 +51,14 @@ def accuracy_with_logits(logits, labels, weights=None):
     #tf.summary.scalar('accuracy', accuracy)
     return accuracy
 
+def confusion_matrix_with_logits(logits, labels):
+    predictions = tf.expand_dims(tf.one_hot(tf.argmax(logits, 1), depth=logits.get_shape().as_list()[1]), axis=1)
+    truth = tf.expand_dims(labels, axis=2)
+    as_matrix = tf.mul(tf.cast(predictions, tf.int32), truth)
+    confusion = tf.reduce_sum(as_matrix, axis=0)
+    #import ipdb; ipdb.set_trace()
+    return confusion
+
 def fraction_above_threshold(logits, threshold):
     above_threshold = logits > threshold
     f_a_t = tf.reduce_mean(tf.cast(above_threshold, "float"), name='fraction_above_threshold')

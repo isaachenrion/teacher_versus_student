@@ -348,20 +348,34 @@ class SafetyNetClassifier(Classifier):
 
 
 class Curriculum(Model):
-    def __init__(self, input_shape, label_dim, student_lr, teacher_lr, train_teacher_every, n_batches=None):
+    def __init__(self,
+                input_shape,
+                label_dim,
+                student_lr,
+                teacher_lr,
+                train_teacher_every=10,
+                conv=False,
+                self_study=False,
+                teacher_temperature=1.0,
+                entropy_term=0.1,
+                use_labels=False,
+                use_student_answers=False,
+                l1_reg=False
+    ):
         super(Curriculum, self).__init__(paradigm='classifier')
 
         # model hyperparameters
-        self.teacher_temperature = 1
-        self.conv = False
-        self.self_study = True
-        self.entropy_term = 0.0
-        self.train_teacher_every = 10
-        self.use_labels = False
-        self.use_student_answers = False
-        self.use_teacher_logits = True
+        self.teacher_temperature = teacher_temperature
+        self.conv = conv
+        self.self_study = self_study
+        self.entropy_term = entropy_term
+        self.train_teacher_every = train_teacher_every
+        self.use_labels = use_labels
+        self.use_student_answers = use_student_answers
+        self.use_teacher_logits = False
         self.cheat = False
-        assert (self.use_student_answers != self.use_teacher_logits)
+        self.l1_reg = l1_reg
+        assert not (self.use_student_answers and self.use_teacher_logits)
 
         self.name = 'teacher_vs_student'
         self.inputs = tf.placeholder(tf.float32, [None] + input_shape)
@@ -370,7 +384,6 @@ class Curriculum(Model):
         self.input_dim = np.prod(input_shape)
         self.teacher_input_dim = self.input_dim
         self.label_dim = label_dim
-        self.n_batches = n_batches
 
         # optimization stuff
         self.student_lr = student_lr
@@ -379,6 +392,12 @@ class Curriculum(Model):
         self.student_optimizer = tf.train.AdamOptimizer(self.student_lr)
         self.teacher_optimizer = tf.train.AdamOptimizer(self.teacher_lr)
 
+        # scopes
+        self.teacher_scope = 'teacher/'
+        self.student_scope = 'student/'
+        self.weighted_scope = 'weighted/'
+        self.unweighted_scope = 'unweighted/'
+
         if self.conv:
             self.student = self.conv_student
             self.teacher = self.conv_teacher
@@ -386,10 +405,10 @@ class Curriculum(Model):
             self.student = self.fc_student
             self.teacher = self.fc_teacher
 
-        with tf.variable_scope('student/') as self.student_scope:
+        with tf.variable_scope(self.student_scope):
             self.student_answers = self.student(self.inputs)
 
-        with tf.variable_scope('teacher/') as self.teacher_scope:
+        with tf.variable_scope(self.teacher_scope):
             extra_info = []
             if self.use_labels:
                 extra_info += [tf.cast(self.labels, tf.float32)]
@@ -401,18 +420,17 @@ class Curriculum(Model):
             self.teacher_logits = self.teacher(self.inputs, extra_info)
 
             teacher_weights = tf.nn.softmax(self.teacher_logits / self.teacher_temperature, dim=0)
-
-            #self.normalization_constant = tf.Variable(0.0, name='normalization_constant')
-            #self.sum_teacher_logits = tf.reduce_sum(self.teacher_logits)
+            if self.l1_reg:
+                teacher_weights = tf.nn.softmax(self.teacher_logits / self.teacher_temperature, dim=0)
             self.teacher_weights = tf.reshape(teacher_weights, [-1])
 
             self.weight_entropy = -tf.reduce_sum(self.teacher_weights * tf.log(self.teacher_weights))
 
-        with tf.variable_scope('unweighted/') as self.unweighted_scope:
+        with tf.variable_scope(self.unweighted_scope):
             self.unweighted_losses = softmax_cross_entropy(logits=self.student_answers, labels=self.labels, reduce=False)
             self.unweighted_loss = tf.reduce_mean(self.unweighted_losses)
 
-        with tf.variable_scope('weighted/') as self.weighted_scope:
+        with tf.variable_scope(self.weighted_scope):
             self.weighted_losses = tf.mul(self.teacher_weights, self.unweighted_losses)
             self.weighted_loss = tf.reduce_sum(self.weighted_losses, axis=0)
 
@@ -423,14 +441,18 @@ class Curriculum(Model):
             self.loss_op = self.student_loss
 
         with tf.variable_scope(self.teacher_scope):
-            self.teacher_loss = -self.weighted_loss - tf.mul(self.weight_entropy, self.entropy_term)
+            self.teacher_loss = -self.weighted_loss
+            if self.entropy_term:
+                self.teacher_loss -= tf.mul(self.weight_entropy, self.entropy_term)
+            if self.l1_reg:
+                self.teacher_loss += tf.mul(self.l1_reg, tf.reduce_sum(self.teacher_weights))
 
         teacher_params = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 'teacher')
         student_params = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 'student')
         self.train_student = self.train(self.student_loss, global_step=self.global_step, optimizer=self.student_optimizer, var_list=student_params)
         self.train_teacher = self.train(self.teacher_loss, global_step=self.global_step, optimizer=self.teacher_optimizer, var_list=teacher_params)
 
-        #self.setup_evaluations()
+        self.setup_evaluations()
         self.attach_summaries()
         self.summary_op = tf.summary.merge_all()
         self.check_op = tf.add_check_numerics_ops()
@@ -441,6 +463,7 @@ class Curriculum(Model):
     def update_params(self, inputs, labels):
         fd = self.get_feed_dict(inputs, labels)
         step = self.get_global_step()
+        #if not self.normalize_by_batch: self.sess.run(self.smooth_Z_op, feed_dict=fd)
         if step % self.train_teacher_every == 0:
             teacher_loss, _ = self.sess.run([self.teacher_loss, self.train_teacher], feed_dict=fd)
             student_loss, _ = self.sess.run([self.student_loss, self.train_student], feed_dict=fd)
@@ -578,23 +601,12 @@ class Curriculum(Model):
 
     def evaluate(self, inputs, labels):
         feed_dict=self.get_feed_dict(inputs, labels)
-        loss_value, summary_str = self.sess.run([self.loss_op, self.summary_op], feed_dict=feed_dict)
-        return loss_value, summary_str
+        loss_value, summary_str, evals = self.sess.run([self.loss_op, self.summary_op] + self.eval_op, feed_dict=feed_dict)
+        return loss_value, summary_str, evals
 
     def setup_evaluations(self):
-        evaluation_list = tf.get_collection('evaluation')
-        with tf.variable_scope('unweighted', reuse=True):
-            self.accuracy = accuracy_with_logits(logits=self.student_answers, labels=self.labels)
-            tf.summary.scalar('accuracy', self.accuracy)
-        tf.add_to_collection('evaluation', self.accuracy)
-        with tf.variable_scope('weighted', reuse=True):
-            self.weighted_accuracy = accuracy_with_logits(logits=self.student_answers, labels=self.labels, weights=self.teacher_weights)
-            tf.summary.scalar('accuracy', self.weighted_accuracy)
-        tf.add_to_collection('evaluation', self.weighted_accuracy)
-        evaluation_list = tf.get_collection('evaluation')
-        self.evaluation_dict = {evaluation.name: evaluation for evaluation in evaluation_list}
-        assert len(self.evaluation_dict.keys()) > 0
-        self.evaluations_have_been_setup = True
+        confusion = confusion_matrix_with_logits(self.student_answers, self.labels)
+        self.eval_op = [confusion]
 
     def model_description(self):
         settings = {}
@@ -612,6 +624,7 @@ class Curriculum(Model):
         settings['use_labels'] = self.use_labels
         settings['use_student_answers'] = self.use_student_answers
         settings['cheat'] = self.cheat
+        settings['l1_reg'] = self.l1_reg
         return settings
 
     def attach_summaries(self):
