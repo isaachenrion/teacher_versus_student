@@ -21,6 +21,12 @@ flags.DEFINE_float("learning_rate", 1e-3, "learning rate")
 flags.DEFINE_string("working_directory", "", "")
 flags.DEFINE_string("model", "", "")
 flags.DEFINE_integer("tte", 10, "train teacher every")
+flags.DEFINE_boolean("conv", False, "convolutional")
+flags.DEFINE_boolean("ss", False, "self study")
+flags.DEFINE_float("ent", 0.0, "entropy term")
+flags.DEFINE_float("tt", 1.0, "teacher temperature")
+flags.DEFINE_boolean('stu', False, "use student answers")
+flags.DEFINE_boolean("labels", False "use labels")
 
 FLAGS = flags.FLAGS
 RES_DIR = os.path.join(FLAGS.working_directory, "new_results")
@@ -115,12 +121,12 @@ def main():
                            student_lr=FLAGS.learning_rate,
                            teacher_lr=FLAGS.learning_rate,
                            train_teacher_every=FLAGS.tte,
-                           conv=False,
-                           self_study=False,
-                           teacher_temperature=1.0,
-                           entropy_term=0.1,
-                           use_labels=False,
-                           use_student_answers=False,
+                           conv=FLAGS.conv,
+                           self_study=FLAGS.ss,
+                           teacher_temperature=FLAGS.tt,
+                           entropy_term=FLAGS.ent,
+                           use_labels=FLAGS.lab,
+                           use_student_answers=FLAGS.stu,
                            l1_reg=0.0)
     experiment = Experiment(model, data)
     experiment.run()
