@@ -457,7 +457,7 @@ class Curriculum(Model):
         self.summary_op = tf.summary.merge_all()
         self.check_op = tf.add_check_numerics_ops()
 
-        self.sess = tf.Session()
+        self.sess = tf.Session(config=tf.ConfigProto(log_device_placement=True))
         self.sess.run(tf.global_variables_initializer())
 
     def update_params(self, inputs, labels):
