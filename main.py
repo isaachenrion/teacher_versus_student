@@ -26,7 +26,7 @@ flags.DEFINE_boolean("ss", False, "self study")
 flags.DEFINE_float("ent", 0.0, "entropy term")
 flags.DEFINE_float("tt", 1.0, "teacher temperature")
 flags.DEFINE_boolean('stu', False, "use student answers")
-flags.DEFINE_boolean("labels", False, "use labels")
+flags.DEFINE_boolean("lab", False, "use labels")
 flags.DEFINE_boolean("mnist", False, "mnist")
 flags.DEFINE_boolean("cifar", False, "cifar")
 
