@@ -26,7 +26,9 @@ flags.DEFINE_boolean("ss", False, "self study")
 flags.DEFINE_float("ent", 0.0, "entropy term")
 flags.DEFINE_float("tt", 1.0, "teacher temperature")
 flags.DEFINE_boolean('stu', False, "use student answers")
-flags.DEFINE_boolean("labels", False "use labels")
+flags.DEFINE_boolean("labels", False, "use labels")
+flags.DEFINE_boolean("mnist", False, "mnist")
+flags.DEFINE_boolean("cifar", False, "cifar")
 
 FLAGS = flags.FLAGS
 RES_DIR = os.path.join(FLAGS.working_directory, "new_results")
@@ -113,9 +115,12 @@ class Experiment:
                     self.batch_size, FLAGS.working_directory)
 
 def main():
-    #data = MNIST(FLAGS.batch_size, DATA_DIR, dims=2, one_hot=True, unbalanced_train=0.5, unbalanced_test=0.5)
-    #data = CIFAR10(FLAGS.batch_size, DATA_DIR, one_hot=True)
-    data = CIFAR10_u05(FLAGS.batch_size, DATA_DIR, one_hot=True)
+    if FLAGS.mnist:
+        data = MNIST(FLAGS.batch_size, DATA_DIR, dims=2, one_hot=True, unbalanced_train=0.5, unbalanced_test=0.5)
+    elif FLAGS.cifar:
+        data = CIFAR10(FLAGS.batch_size, DATA_DIR, one_hot=True)
+        #data = CIFAR10_u05(FLAGS.batch_size, DATA_DIR, one_hot=True)
+    else: raise ValueError
     model = Curriculum(input_shape=data.input_shape,
                            label_dim=data.label_dim,
                            student_lr=FLAGS.learning_rate,
