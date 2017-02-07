@@ -252,20 +252,22 @@ class MNIST(LabelledDataset):
 class CIFAR10(LabelledDataset):
     def __init__(self, batch_size, data_dir, one_hot):
         name = 'cifar10'
-        super(CIFAR10, self).__init__(batch_size, data_dir + '/cifar10', name, 4, [3, 32, 32], 10, one_hot)
+        super(CIFAR10, self).__init__(batch_size, data_dir + '/cifar10', name, 4, [32, 32, 3], 10, one_hot)
 
     def x_preprocess(self, x):
-        reshape = np.reshape(x, (x.shape[0], *self.input_shape))
-        return np.transpose(reshape, (0, 2, 3, 1)) / 255.0
+        reshape = np.reshape(x, (x.shape[0], self.input_shape[2], self.input_shape[0], self.input_shape[1])) / 255.0
+        x_T = np.transpose(reshape, (0, 2, 3, 1))
+        return x_T
 
 class CIFAR10_u05(LabelledDataset):
     def __init__(self, batch_size, data_dir, one_hot):
         name = 'cifar10/u-0.5'
-        super(CIFAR10_u05, self).__init__(batch_size, os.path.join(data_dir, name), name, 4, [3, 32, 32], 10, one_hot)
+        super(CIFAR10_u05, self).__init__(batch_size, os.path.join(data_dir, name), name, 4, [32, 32, 3], 10, one_hot)
 
     def x_preprocess(self, x):
-        reshape = np.reshape(x, (x.shape[0], *self.input_shape))
-        return np.transpose(reshape, (0, 2, 3, 1)) / 255.0
+        x_ = np.transpose(x, (0, 2, 3, 1))
+        reshape = np.reshape(x_, (x_.shape[0], *self.input_shape)) / 255.0
+        return reshape
 
 def get_labeled_data(imagefile, labelfile):
     """Read input-vector (image) and target class (label, 0-9) and return
