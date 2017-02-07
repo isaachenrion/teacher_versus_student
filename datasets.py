@@ -255,9 +255,10 @@ class CIFAR10(LabelledDataset):
         super(CIFAR10, self).__init__(batch_size, data_dir + '/cifar10', name, 4, [32, 32, 3], 10, one_hot)
 
     def x_preprocess(self, x):
-        reshape = np.reshape(x, (x.shape[0], self.input_shape[2], self.input_shape[0], self.input_shape[1])) / 255.0
+        reshape = np.reshape(x, (x.shape[0], self.input_shape[2], self.input_shape[0], self.input_shape[1]))
         x_T = np.transpose(reshape, (0, 2, 3, 1))
-        return x_T
+        return x_T / 255.0
+        #return reshape
 
 class CIFAR10_u05(LabelledDataset):
     def __init__(self, batch_size, data_dir, one_hot):

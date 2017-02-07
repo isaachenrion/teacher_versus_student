@@ -102,6 +102,7 @@ class Experiment:
 
         training_loss /= self.updates_per_epoch
         print("Training loss: {:.5f}".format(training_loss))
+        print("Training accuracy: {:.2f}%".format(100 * np.trace(total_confusion) / np.sum(total_confusion)))
         print("Confusion Matrix: {} examples total\n {}".format(int(np.sum(total_confusion)), total_confusion.astype('int32')))
 
     def validate(self, epoch):
@@ -118,6 +119,7 @@ class Experiment:
             total_confusion += confusion
         validation_loss /= (self.evals_per_epoch)
         print("Validation loss: {:.5f}".format(validation_loss))
+        print("Validation accuracy: {:.2f}%".format(100 * np.trace(total_confusion) / np.sum(total_confusion)))
         print("Confusion Matrix: {} examples total\n {}".format(int(np.sum(total_confusion)), total_confusion.astype('int32')))
 
     def run(self):
@@ -148,7 +150,9 @@ def main():
             data = CIFAR10(FLAGS.batch_size, DATA_DIR, one_hot=True)
             #data = CIFAR10_u05(FLAGS.batch_size, DATA_DIR, one_hot=True)
         else: raise ValueError("You must select a dataset!")
-        if FLAGS.debug: data.unit_test(True)
+        if FLAGS.debug:
+            data.unit_test(True)
+            exit()
         model = Curriculum(sess=sess,
                             input_shape=data.input_shape,
                                label_dim=data.label_dim,
