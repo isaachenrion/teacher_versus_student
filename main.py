@@ -148,7 +148,7 @@ def main():
             data = CIFAR10(FLAGS.batch_size, DATA_DIR, one_hot=True)
             #data = CIFAR10_u05(FLAGS.batch_size, DATA_DIR, one_hot=True)
         else: raise ValueError("You must select a dataset!")
-        data.unit_test(True)
+        if FLAGS.debug: data.unit_test(True)
         model = Curriculum(sess=sess,
                             input_shape=data.input_shape,
                                label_dim=data.label_dim,

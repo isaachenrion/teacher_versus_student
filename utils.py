@@ -1,6 +1,6 @@
 import os
 import numpy as np
-from scipy.misc import imsave
+#from scipy.misc import imsave
 from PIL import Image
 def save_visualizations(imgs, directory):
   for k in range(imgs.shape[0]):
