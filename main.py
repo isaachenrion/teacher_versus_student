@@ -137,7 +137,9 @@ class Experiment:
                 self.saver.save(self.model.sess, self.experiment_dir + '/model', global_step=epoch)
 
 def main():
-    sess = tf.Session(config=tf.ConfigProto(log_device_placement=FLAGS.debug))
+    sess = tf.Session(config=tf.ConfigProto(
+                        log_device_placement=FLAGS.debug,
+                        allow_soft_placement=True))
     with tf.device(DEVICE):
         if FLAGS.mnist:
             data = MNIST(FLAGS.batch_size, DATA_DIR, dims=2, one_hot=True, unbalanced_train=0.5, unbalanced_test=0.5)
