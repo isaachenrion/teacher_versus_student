@@ -349,6 +349,7 @@ class SafetyNetClassifier(Classifier):
 
 class Curriculum(Model):
     def __init__(self,
+                sess,
                 input_shape,
                 label_dim,
                 student_lr,
@@ -360,7 +361,7 @@ class Curriculum(Model):
                 entropy_term=0.1,
                 use_labels=False,
                 use_student_answers=False,
-                l1_reg=False
+                l1_reg=False,
     ):
         super(Curriculum, self).__init__(paradigm='classifier')
 
@@ -457,7 +458,7 @@ class Curriculum(Model):
         self.summary_op = tf.summary.merge_all()
         self.check_op = tf.add_check_numerics_ops()
 
-        self.sess = tf.Session(config=tf.ConfigProto(log_device_placement=True))
+        self.sess = sess
         self.sess.run(tf.global_variables_initializer())
 
     def update_params(self, inputs, labels):
